@@ -205,8 +205,8 @@ namespace Microsoft.IdentityModel.Tokens
         public const string IDX10806 = "IDX10806: Deserializing json: '{0}' into '{1}'.";
         public const string IDX10807 = "IDX10807: Unable to create an ECDsa from the parameters found in the JsonWebKey. Inner exception: '{0}'.";
         public const string IDX10808 = "IDX10808: The 'use' parameter of a JsonWebKey with a 'kid': '{0}' should be 'sig' or empty, but was '{1}'.";
-        public const string IDX10809 = "IDX10809: The 'kty' parameter '{0}' is not supported. Supported 'kty' parameters are 'RSA' and 'EC'.";
-        public const string IDX10810 = "IDX10810: JsonWebKey with a 'kid': '{0}' was not resolved into an X509SecurityKey or into an RsaSecurityKey.";
+        public const string IDX10809 = "IDX10809: Unable to create a SecurityKey from the JsonWebKey with 'kty' == '{0}'. Supported 'kty' types are: 'RSA' and 'EC'.";
+        public const string IDX10810 = "IDX10810: JsonWebKey with a 'kid': '{0}' with 'kty' == '{0}', was not resolved into an X509SecurityKey, RsaSecurityKey or ECDSASecurityKey.";
 #pragma warning restore 1591
     }
 }

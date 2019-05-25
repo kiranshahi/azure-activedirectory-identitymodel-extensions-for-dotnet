@@ -198,7 +198,7 @@ namespace Microsoft.IdentityModel.Tokens.Tests
             try
             {
                 if (theoryData.SetEcdsaAdapterToNull)
-                    JsonWebKeySet.ECDsaAdapter = null;
+                    JsonWebKeyConverter.ECDsaAdapter = null;
 
                 var signingKeys = theoryData.JsonWebKeySet.GetSigningKeys();
 
@@ -216,7 +216,7 @@ namespace Microsoft.IdentityModel.Tokens.Tests
             {
                 try
                 {
-                    JsonWebKeySet.ECDsaAdapter = new ECDsaAdapter();
+                    JsonWebKeyConverter.ECDsaAdapter = new ECDsaAdapter();
                 }
                 catch
                 {

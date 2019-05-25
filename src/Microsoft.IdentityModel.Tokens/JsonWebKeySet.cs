@@ -65,24 +65,6 @@ namespace Microsoft.IdentityModel.Tokens
         }
 
         /// <summary>
-        /// Initializes an ECDsa Adapter.
-        /// </summary>
-        /// <remarks>
-        /// As ECDsa Adapter is not supported on some platforms, PlatformNotSupported exception will be swallowed and logged.
-        /// </remarks>
-        static JsonWebKeySet()
-        {
-            try
-            {
-                ECDsaAdapter = new ECDsaAdapter();
-            }
-            catch (Exception ex)
-            {
-                LogHelper.LogExceptionMessage(ex);
-            }
-        }
-
-        /// <summary>
         /// Initializes an new instance of <see cref="JsonWebKeySet"/> from a json string.
         /// </summary>
         /// <param name="json">a json string containing values.</param>
@@ -129,11 +111,6 @@ namespace Microsoft.IdentityModel.Tokens
         public virtual IDictionary<string, object> AdditionalData { get; } = new Dictionary<string, object>();
 
         /// <summary>
-        /// This adapter abstracts the <see cref="ECDsa"/> differences between versions of .Net targets.
-        /// </summary>
-        internal static ECDsaAdapter ECDsaAdapter;
-
-        /// <summary>
         /// Gets the <see cref="IList{JsonWebKey}"/>.
         /// </summary>       
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore, NullValueHandling = NullValueHandling.Ignore, PropertyName = JsonWebKeySetParameterNames.Keys, Required = Required.Default)]
@@ -160,7 +137,6 @@ namespace Microsoft.IdentityModel.Tokens
         public IList<SecurityKey> GetSigningKeys()
         {
             var signingKeys = new List<SecurityKey>();
-
             foreach (var webKey in Keys)
             {
                 // skip if "use" (Public Key Use) parameter is not empty or "sig"
@@ -175,38 +151,44 @@ namespace Microsoft.IdentityModel.Tokens
                     continue;
                 }
 
-                if (webKey.Kty != null && webKey.Kty.Equals(JsonWebAlgorithmsKeyTypes.RSA, StringComparison.Ordinal))
+                var isResolved = false;
+                if (webKey.Kty != null)
                 {
-                    var isResolved = false;
-
-                    if (webKey.X5c != null && webKey.X5c.Count != 0)
+                    if (webKey.Kty.Equals(JsonWebAlgorithmsKeyTypes.RSA, StringComparison.Ordinal))
                     {
-                        AddX509SecurityKey(signingKeys, webKey);
-                        isResolved = true;
+                        if (JsonWebKeyConverter.TryConvertToX509SecurityKey(webKey, out SecurityKey securityKey))
+                        {
+                            signingKeys.Add(webKey);
+                            isResolved = true;
+                        }
+
+                        if (JsonWebKeyConverter.TryCreateRsaSecurityKey(webKey, out securityKey))
+                        {
+                            signingKeys.Add(securityKey);
+                            isResolved = true;
+                        }
                     }
-
-                    if (!string.IsNullOrWhiteSpace(webKey.E) && !string.IsNullOrWhiteSpace(webKey.N))
+                    else if (webKey.Kty.Equals(JsonWebAlgorithmsKeyTypes.EllipticCurve, StringComparison.Ordinal))
                     {
-                        AddRsaSecurityKey(signingKeys, webKey);
-                        isResolved = true;
+                        if (JsonWebKeyConverter.TryConvertECDsaSecurityKey(webKey, out SecurityKey securityKey))
+                        {
+                            signingKeys.Add(securityKey);
+                            isResolved = true;
+                        }
                     }
-
-                    if (!isResolved)
+                    else
                     {
-                        LogHelper.LogInformation(LogHelper.FormatInvariant(LogMessages.IDX10810, webKey.KeyId ?? "null"));
+                        // kty is not 'EC' or 'RSA'
+                        LogHelper.LogInformation(LogHelper.FormatInvariant(LogMessages.IDX10809, webKey.Kty ?? "null"));
 
-                        if(!SkipUnresolvedJsonWebKeys)
+                        if (!SkipUnresolvedJsonWebKeys)
                             signingKeys.Add(webKey);
                     }
                 }
-                else if (webKey.Kty != null && webKey.Kty.Equals(JsonWebAlgorithmsKeyTypes.EllipticCurve, StringComparison.Ordinal))
+
+                if (!isResolved)
                 {
-                    AddECDsaSecurityKey(signingKeys, webKey);
-                }
-                else
-                {
-                    // kty is not 'EC' or 'RSA'
-                    LogHelper.LogInformation(LogHelper.FormatInvariant(LogMessages.IDX10809, webKey.Kty ?? "null"));
+                    LogHelper.LogInformation(LogHelper.FormatInvariant(LogMessages.IDX10810, webKey.KeyId ?? "null", webKey.Kty ?? "null"));
 
                     if (!SkipUnresolvedJsonWebKeys)
                         signingKeys.Add(webKey);
@@ -214,85 +196,6 @@ namespace Microsoft.IdentityModel.Tokens
             }
 
             return signingKeys;
-        }
-
-        private void AddX509SecurityKey(ICollection<SecurityKey> signingKeys, JsonWebKey jsonWebKey)
-        {
-            try
-            {
-                // only the first certificate should be used to perform signing operations
-                // https://tools.ietf.org/html/rfc7517#section-4.7
-                var x509SecurityKey =  new X509SecurityKey(new X509Certificate2(Convert.FromBase64String(jsonWebKey.X5c[0])))
-                {
-                    KeyId = jsonWebKey.Kid
-                };
-
-                signingKeys.Add(x509SecurityKey);
-            }
-            catch (Exception ex)
-            {
-                LogHelper.LogExceptionMessage(new InvalidOperationException(LogHelper.FormatInvariant(LogMessages.IDX10802, jsonWebKey.X5c[0], ex), ex));
-
-                if (!SkipUnresolvedJsonWebKeys)
-                    signingKeys.Add(jsonWebKey);
-            }
-        }
-
-        private void AddRsaSecurityKey(ICollection<SecurityKey> signingKeys, JsonWebKey jsonWebKey)
-        {
-            try
-            {
-                var rsaParams = new RSAParameters
-                {
-                    Exponent = Base64UrlEncoder.DecodeBytes(jsonWebKey.E),
-                    Modulus = Base64UrlEncoder.DecodeBytes(jsonWebKey.N),
-                };
-
-                var rsaSecurityKey = new RsaSecurityKey(rsaParams)
-                {
-                    KeyId = jsonWebKey.Kid
-                };
-
-                signingKeys.Add(rsaSecurityKey);
-            }
-            catch (Exception ex)
-            {
-                LogHelper.LogExceptionMessage(new InvalidOperationException(LogHelper.FormatInvariant(LogMessages.IDX10801, jsonWebKey.E, jsonWebKey.N, ex), ex));
-
-                if (!SkipUnresolvedJsonWebKeys)
-                    signingKeys.Add(jsonWebKey);
-            }
-        }
-
-        private void AddECDsaSecurityKey(ICollection<SecurityKey> signingKeys, JsonWebKey jsonWebKey)
-        {
-            // ECDsa adapter is null when a platform is not supported i.e. when ECDsaAdapter is not successfully initialized.
-            if (ECDsaAdapter == null)
-            {
-                LogHelper.LogInformation(LogHelper.FormatInvariant(LogMessages.IDX10690));
-                if (!SkipUnresolvedJsonWebKeys)
-                    signingKeys.Add(jsonWebKey);
-
-                return;
-            }
-
-            try
-            {
-                var ecdsa = ECDsaAdapter.CreateECDsa(jsonWebKey, false);
-                var ecdsaSecurityKey = new ECDsaSecurityKey(ecdsa)
-                {
-                    KeyId = jsonWebKey.Kid
-                };
-
-                signingKeys.Add(ecdsaSecurityKey);
-            }
-            catch (Exception ex)
-            {
-                LogHelper.LogExceptionMessage(new InvalidOperationException(LogHelper.FormatInvariant(LogMessages.IDX10807, ex), ex));
-
-                if (!SkipUnresolvedJsonWebKeys)
-                    signingKeys.Add(jsonWebKey);
-            }
         }
     }
 }

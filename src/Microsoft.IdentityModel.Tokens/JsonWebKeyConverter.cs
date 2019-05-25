@@ -27,6 +27,7 @@
 
 using System;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.IdentityModel.Logging;
 
 namespace Microsoft.IdentityModel.Tokens
@@ -37,6 +38,30 @@ namespace Microsoft.IdentityModel.Tokens
     /// </summary>
     public class JsonWebKeyConverter
     {
+
+        /// <summary>
+        /// Initializes an ECDsa Adapter.
+        /// </summary>
+        /// <remarks>
+        /// As ECDsa Adapter is not supported on some platforms, PlatformNotSupported exception will be swallowed and logged.
+        /// </remarks>
+        static JsonWebKeyConverter()
+        {
+            try
+            {
+                ECDsaAdapter = new ECDsaAdapter();
+            }
+            catch (Exception ex)
+            {
+                LogHelper.LogExceptionMessage(ex);
+            }
+        }
+
+        /// <summary>
+        /// This adapter abstracts the <see cref="ECDsa"/> differences between versions of .Net targets.
+        /// </summary>
+        internal static ECDsaAdapter ECDsaAdapter;
+
         /// <summary>
         /// Converts a <see cref="SecurityKey"/> into a <see cref="JsonWebKey"/>
         /// </summary>
@@ -133,5 +158,87 @@ namespace Microsoft.IdentityModel.Tokens
                 Kty = JsonWebAlgorithmsKeyTypes.Octet
             };
         }
+
+        internal static bool TryConvertToX509SecurityKey(JsonWebKey webKey, out SecurityKey securityKey)
+        {
+            securityKey = null;
+            if (webKey.X5c == null || webKey.X5c.Count == 0)
+                return false;
+
+            try
+            {
+                // only the first certificate should be used to perform signing operations
+                // https://tools.ietf.org/html/rfc7517#section-4.7
+                securityKey = new X509SecurityKey(new X509Certificate2(Convert.FromBase64String(webKey.X5c[0])))
+                {
+                    KeyId = webKey.Kid
+                };
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.LogExceptionMessage(new InvalidOperationException(LogHelper.FormatInvariant(LogMessages.IDX10802, webKey.X5c[0], ex), ex));
+            }
+
+            return false;
+        }
+
+        internal static bool TryCreateRsaSecurityKey(JsonWebKey webKey, out SecurityKey securityKey)
+        {
+            securityKey = null;
+            if (string.IsNullOrWhiteSpace(webKey.E) && string.IsNullOrWhiteSpace(webKey.N))
+                return false;
+
+            try
+            {
+                securityKey = new RsaSecurityKey(new RSAParameters
+                {
+                    Exponent = Base64UrlEncoder.DecodeBytes(webKey.E),
+                    Modulus = Base64UrlEncoder.DecodeBytes(webKey.N),
+                })
+                {
+                    KeyId = webKey.Kid
+                };
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.LogExceptionMessage(new InvalidOperationException(LogHelper.FormatInvariant(LogMessages.IDX10801, webKey.E, webKey.N, ex), ex));
+            }
+
+            return false;
+        }
+
+        internal static bool TryConvertECDsaSecurityKey(JsonWebKey webKey, out SecurityKey securityKey)
+        {
+            securityKey = null;
+            // ECDsa adapter is null when a platform is not supported i.e. when ECDsaAdapter is not successfully initialized.
+            if (ECDsaAdapter == null)
+            {
+                LogHelper.LogInformation(LogHelper.FormatInvariant(LogMessages.IDX10690));
+                return false;
+            }
+
+            try
+            {
+                var ecdsa = ECDsaAdapter.CreateECDsa(webKey, false);
+                securityKey = new ECDsaSecurityKey(ecdsa)
+                {
+                    KeyId = webKey.Kid
+                };
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.LogExceptionMessage(new InvalidOperationException(LogHelper.FormatInvariant(LogMessages.IDX10807, ex), ex));
+            }
+
+            return false;
+        }
+
+
     }
 }
